@@ -1,0 +1,504 @@
+from libshai import integro
+from pylab import (norm, pi, hstack, vstack, array, sign, sin, cos, arctan2, )
+from copy import deepcopy
+import mutils.io as mio
+
+class SimulationError(Exception):
+    pass
+
+class BSLIP(mio.saveable):
+    """ Class of the bipedal walking SLIP """
+    
+    def __init__(self, params=None, IC=None):
+        """ 
+        The BSLIP is a bipedal walking SLIP model.
+
+        params (mutils.misc.Struct): parameter of the model
+        IC (array): initial conditions. [x, y, z, vx, vy, vz] 
+            *NOTE* the system starts in single stance and *must* have
+            positive vertical velocity ("vy > 0")
+
+        """
+        super(BSLIP, self).__init__()
+        self.params = deepcopy(params)
+        self.state = deepcopy(IC)
+        self.odd_step = True # leg 1 or leg two on ground?
+        self.dt = .01
+        
+        self.ode = integro.odeDP5(self.dy_Stance, pars=self.params)
+        self.ode.ODE_RTOL = 1e-9
+        self.t = 0
+        self.t_td = 0
+        self.t_to = 0
+        self.singleStance = True
+        self.failed = False
+        
+        # storage for ode solutions
+        self.feet1_seq = []
+        self.feet2_seq = []
+        self.t_ss_seq = []
+        self.t_ds_seq = []
+        self.y_ss_seq = []
+        self.y_ds_seq = []
+        self.forces_ss_seq = []
+        self.forces_ds_seq = []
+        self.DEBUG = False
+        if self.params is not None:
+            self.feet1_seq.append(self.params['foot1'])
+            self.feet2_seq.append(self.params['foot2'])
+        
+    def init_ode(self):
+        """ re-initialize the ODE solver """
+        self.ode = integro.odeDP5(self.dy_Stance, pars=self.params)
+        self.ode.ODE_RTOL = 1e-9
+    
+    def restore(self, filename):
+        """
+        update the restore procedure: re-initialize the ODE solver!
+        
+        :args:
+            filename (str): the filename where the model information is stored
+        """
+        super(BSLIP, self).restore(filename)
+        self.ode = integro.odeDP5(self.dy_Stance, pars=self.params)
+        self.ode.ODE_RTOL = 1e-9
+    
+    def legfunc1(self, t, y, pars):
+        """
+        Force (scalar) function of leg 1: Here, spring function
+
+        :args:
+            t (float): time (ignored)
+            y (6x float): CoM state [position, velocity]
+            pars (dict): parameters of the model. Must include 
+                'foot1' (3x float) foot1 position
+                'lp1' (4x float) parameters of leg 1
+
+        :returns:
+            f (float): the axial leg force  ["f = k * (l - l0)"]
+
+        NOTE: Overwrite this function to get different models.
+              The signature must not change.
+        """
+        #DEBUG:
+        #print 'pf1: ', pars['foot1']
+        l1 = norm(array(y[:3]) - array(pars['foot1']))
+        return -pars['lp1'][0] * (l1 - pars['lp1'][1])
+
+    def legfunc2(self, t, y, pars):
+        """
+        leg function of leg 2: a spring function
+        
+        :args:
+            t (float): time (ignored)
+            y (6x float): CoM state [position, velocity]
+            pars (dict): parameters of the model. Must include 
+                'foot1' (3x float) foot1 position
+                'lp1' (4x float) parameters of leg 1
+
+        :returns:
+            f (float): the axial leg force  ["f = k * (l - l0)"]
+
+        NOTE: Overwrite this function to get different models.
+              The signature must not change.
+        """
+        l2 = norm(array(y[:3]) - array(pars['foot2']))
+        return -pars['lp2'][0] * (l2 - pars['lp2'][1])    
+        
+    def evt_vy0(self, t, states, traj, p):
+        """
+        triggers the  vy=0 event
+
+        :args:
+            t (2x float): list of time prior to and after event
+            states (2x array): list of states prior to and after event
+            traj (trajectory patch): a trajectory patch (ignored here)
+
+        :returns:
+            (bool) vy=0 detected? (both directions)
+        """
+        return sign(states[0][4]) * sign(states[1][4]) != 1
+    
+    def update_params_ss(self):
+        """ 
+        Updates the model parameters in the single stance vy=0 event.
+        Here, this function does nothing.
+        Overwrite it in derived models to enable e.g. control actions.
+        """
+
+        pass
+
+    def update_params_ds(self):
+        """ 
+        Updates the model parameters in the double stance vy=0 event.
+        Here, this function does nothing.
+        Overwrite it in derived models to enable e.g. control actions.
+        """
+        
+        pass
+    
+    def update_params_td(self):
+        """
+        Updates the model parameters at touchdown events.
+        Here, this function does nothing.
+        Overwrite it in derived models to enable e.g. control actions.
+        """
+        pass
+    
+    def update_params_to(self):
+        """
+        Updates the model parameters at takeoff events.
+        Here, this function does nothing.
+        Overwrite it in derived models to enable e.g. control actions.
+        """
+        pass
+    
+    def takeoff_event(self, t, states, traj, pars, legfun):
+        """ 
+        triggers the take off of a leg 
+        Hint: use a lambda function to adapt the call signature
+
+        This function is force-triggered. The parameter format (pars) must
+        be the same as for legfun (which is called from here!)
+
+        *NOTE* you can overwrite this method for derived models. However, 
+        this is not required if the takeoff condition is "zero force".
+
+        :args:
+            t (2x float): list of time prior to and after event
+            states (2x array): list of states prior to and after event
+            traj (trajectory patch): a trajectory patch (ignored here)
+            pars (<any>): the leg functions parameters
+            legfun (function of (t, y, pars) ): the leg force function.
+        
+        :returns:
+            (bool) takeoff detected? (force has falling zero crossing)
+        """
+
+        F0 = legfun(t[0], states[0], pars)
+        F1 = legfun(t[1], states[1], pars)
+
+        return F0 > 0 and F1 <= 0
+        
+    def touchdown_event(self, t, states, traj, pars):
+        """
+        triggers the touchdown of the leading leg.
+        Hint: use a lambda function to adapt the call signature
+
+        :args:
+            t (2x float): list of time prior to and after event
+            states (2x array): list of states prior to and after event
+            traj (trajectory patch): a trajectory patch (ignored here)
+            pars (4x float): the leg functions parameters. Format:
+                [l0, alpha, beta, floorlevel]            
+
+        pars format:
+            [l0, alpha, beta, floorlevel]
+        
+        :returns:
+            (bool) takeoff detected? (force has falling zero crossing)
+        
+        """
+        def zfoot(state, pars):
+            foot = state[1] - pars[0] * sin(pars[1])
+            return foot - pars[3]
+        return zfoot(states[0], pars) > 0 and zfoot(states[1], pars) <= 0
+    
+    def touchdown_event_refine(self, t, state, pars):
+        """ 
+        The touchdown event function for refinement of touchdown detection.
+        The zero-crossing of the output is defined as instant of the event.
+        Hint: use a lambda function to adapt the call signature
+       
+        :args:
+            t (float): time (ignored)
+            y (6x float): CoM state [position, velocity]
+            pars (4x float): the leg functions parameters. Format:
+                [l0, alpha, beta, floorlevel]    
+
+        :returns:
+            f (float): the axial leg force  ["f = k * (l - l0)"]
+
+
+        """
+        foot = state.squeeze()[1] - pars[0] * sin(pars[1])
+        return foot - pars[3] # foot - ground level        
+        
+    def dy_Stance(self, t, y, pars, return_force = False):
+        """
+        This is the ode function that is passed to the solver. Internally, it calles:
+            legfunc1 - force of leg 1 (overwrite for new models)
+            legfunc2 - force of leg 2 (overwrite for new models)
+        
+        :args:
+            t (float): simulation time
+            y (6x float): CoM state
+            pars (dict): parameters, will be passed to legfunc1 and legfunc2.
+                must also include 'foot1' (3x float), 'foot2' (3x float), 'm' (float)
+                and 'g' (3x float) indicating the feet positions, mass and direction of
+                gravity, respectively.
+            return_force (bool, default: False): return [F_leg1, F_leg2] (6x
+                float) instead of dy/dt.
+        """
+        
+        f1 = max(self.legfunc1(t, y, pars), 0) # only push
+        l1 = norm(array(y[:3]) - array(pars['foot1']))
+        f1_vec = (array(y[:3]) - array(pars['foot1'])) / l1 * f1
+        f2 = max(self.legfunc2(t, y, pars), 0) # only push
+        l2 = norm(array(y[:3]) - array(pars['foot2']))
+        f2_vec = (array(y[:3]) - array(pars['foot2'])) / l2 * f2
+        if return_force:
+            return hstack([f1_vec, f2_vec])
+        return hstack([y[3:], (f1_vec + f2_vec) / pars['m'] + pars['g']])
+
+    
+    def get_touchdown(self, t, y, params):
+        """
+        Compute the touchdown position of the leg. Overwrite this for different leg parameters!
+        
+        :args:
+            t (float): time
+            y (6x float): state of the CoM
+            params (4x float): leg parameter: stiffness, l0, alpha, beta
+        
+        :returns:
+            [xFoot, yFoot, zFoot] the position of the leg tip
+        """
+        k, l0, alpha, beta = params
+        xf = y[0] + l0 * cos(alpha) * cos(beta)
+        yf = y[1] - l0 * sin(alpha)
+        zf = y[2] - l0 * cos(alpha) * sin(beta)
+        
+        return array([xf, yf, zf])
+
+    def checkSim(self):
+        """
+        Raises an error if the model failed.
+        Overwrite in derived classes to avoid raised errors.
+        """
+
+        raise SimulationError("simulation failed!")
+    
+    def do_step(self):
+        """ 
+        Performs a step from the current state, using the current parameters.
+        The simulation results are also stored in self.[y|t]_[s|d]s_seq, 
+        the states and times of single and double support phases.
+
+        *requires*: 
+            self.
+                - params (dict): model and leg function parameters
+                - odd_step (bool): whether or not to trigger contact of leg2 (leg1 otherwise)
+                - state (6x float): the  initial state
+            
+            
+        :args:
+            (None)
+
+        :returns:
+            t_ss, y_ss, t_ds, y_ds: time and simulation results for single stance and double stance 
+            phases
+        """
+        
+        # test initial conditions.
+        
+
+        # test wether there is a current state and current parameters
+        if self.params is None:
+            raise TypeError("parameters not set")
+        if self.state is None:
+            raise TypeError("state (initial condition) not set")
+        if self.failed:
+            raise SimulationError("Simulation failed previously.")
+            
+        ground = 0 # ground level        
+        max_T = 2 # maximal 2 seconds for simulation of each phase
+        
+        if self.odd_step:            
+            td_pars = self.params['lp2'][1:] + [ground, ] # set touchdown parameters
+            td_pars_2 = self.params['lp2'] # another format of touchdown parameters (for get_touchdown)
+            newfoot = 'foot2' # which foot position to update?
+            to_evt_fun = self.legfunc1 # force generation for takeoff trigger in double support
+            to_evt_ds_refine = self.legfunc1 # function for refinement of DS
+            
+            self.odd_step = False # next step is "even": leg "2" in single stance on ground
+        else:
+            td_pars = self.params['lp1'][1:] + [ground, ] # set touchdown parameters
+            td_pars_2 = self.params['lp1'] # another format of touchdown parameters (for get_touchdown)
+            newfoot = 'foot1' # which foot position to update?            
+            to_evt_fun = self.legfunc2 # force generation for takeoff trigger in double support
+            to_evt_ds_refine = self.legfunc2 # function for refinement of DS
+            
+            self.odd_step = True # next step is "odd": leg "1" in single stance on ground
+            pass
+            
+        # stage 1a: simulate until vy=0
+        
+        self.singleStance = True
+        self.ode.event = self.evt_vy0
+        t0 = self.t
+        tE = t0 + max_T
+        t_a, y_a = self.ode(self.state, t0, tE, dt=self.dt)
+        #d_pars_l2 = self.params['lp2'][1:] + [ground, ]
+        if self.DEBUG:
+            print "finished stage 1 (raw)"
+        if t_a[-1] >= tE:
+            self.failed = True
+        else:
+            tt1, yy1 = self.ode.refine(lambda tf, yf: yf[4])
+            if self.DEBUG:
+                print "finished stage 1 (fine)"
+            self.state = yy1
+            # compute forces
+        forces_ss = [self.dy_Stance(xt, xy, self.params, return_force=True) for
+                xt, xy in zip(t_a, y_a)]
+        #self.forces_ss_seq.append()
+
+        t = []  # dummy, if next step is not executed
+        y = array([[]])
+        if not self.failed:
+            self.update_params_ss()
+            
+            # stage 1b: simulate until touchdown of leading leg
+            # touchdown event of leading leg
+            self.ode.event = lambda t,states,traj,p: self.touchdown_event(t, states, traj, td_pars)
+            t0 = tt1
+            tE = t0 + max_T
+            t, y = self.ode(self.state, t0, tE, dt=self.dt)
+            if self.DEBUG:
+                print "finished stage 2 (raw)"
+            if t[-1] >= tE:
+                self.failed = True
+            else:
+                #d_pars_l2 = self.params['lp2'][1:] + [ground, ]
+                tt, yy = self.ode.refine(lambda tf, yf: self.touchdown_event_refine(tf, yf, td_pars))
+                if self.DEBUG:
+                    print "finished stage 2 (fine)"
+                self.state = yy
+            forces_ss.extend([self.dy_Stance(xt, xy, self.params, return_force=True) for
+                xt, xy in zip(t[1:], y[1:, :])])
+            self.forces_ss_seq.append(vstack(forces_ss))
+        if not self.failed:
+            # allow application of control law        
+            self.t_td = tt
+            self.singleStance = False
+            self.update_params_td()
+        
+        # accumulate results from stage 1a and stage 1b
+        t = hstack([t_a, t[1:]])
+        y = vstack([y_a, y[1:, :]])
+        
+        # stage 2: double support
+        # compute leg 2 touchdown position        
+        t2_a = []
+        y2_a = array([[]])
+        if not self.failed:
+            xf, yf, zf = self.get_touchdown(tt, yy, td_pars_2)
+            self.params[newfoot] = [xf, yf, zf]
+            
+            # stage 2a: simulate until vy=0
+            self.ode.event = self.evt_vy0
+            t0 = tt
+            tE = t0 + max_T
+            t2_a, y2_a = self.ode(self.state, t0, tE, dt=self.dt)
+            if t2_a[-1] >= tE:
+                self.failed = True
+                if self.DEBUG:
+                    print "finished stage 3 (raw)"
+            else:
+                tt2, yy2 = self.ode.refine(lambda tf, yf: yf[4])
+                if self.DEBUG:
+                    print "finished stage 3 (fine)"
+                self.state = yy2
+            forces_ds = [self.dy_Stance(xt, xy, self.params, return_force=True) for
+                xt, xy in zip(t2_a, y2_a)]
+
+        if not self.failed:
+            # allow application of control law
+            self.update_params_ds()
+          
+        
+        # stage 2b: double stance - simulate until takeoff of trailing leg
+       
+        # define and solve double stance ode
+        #ode = integro.odeDP5(self.dy_Stance, pars=self.params)
+        # event is takeoff of leg 1
+        t2_b = []
+        y2_b = array([[]])
+        if not self.failed:
+            self.ode.event = lambda t,states,traj,p: self.takeoff_event(t,
+                    states, traj, p, legfun=to_evt_fun)
+            t0 = tt2
+            tE = t0 + max_T
+            t2_b, y2_b = self.ode(self.state, t0, tE, dt=self.dt)
+            if t2_b[-1] >= tE:
+                self.failed = True
+                if self.DEBUG:
+                    print "finished stage 4 (raw)"
+            else:
+        # refinement: force reaches zero
+                tt, yy = self.ode.refine(lambda tf, yf: to_evt_ds_refine(tf, yf, self.params))
+                if self.DEBUG:
+                    print "finished stage 4 (fine)"
+                self.state = yy
+
+            forces_ds.extend([self.dy_Stance(xt, xy, self.params, return_force=True) for
+                xt, xy in zip(t2_b[1:], y2_b[1:, :])])
+
+            self.forces_ds_seq.append(vstack(forces_ds))
+            # allow application of control law
+            self.t_to = tt
+            self.singleStance = True
+            self.update_params_to()
+        
+        # accumulate results from stage 1a and stage 1b
+        t2 = hstack([t2_a, t2_b[1:]])
+        y2 = vstack([y2_a, y2_b[1:, :]])
+        
+        #store simulation results
+        self.y_ss_seq.append(y)
+        self.y_ds_seq.append(y2)
+        self.t_ss_seq.append(t)
+        self.t_ds_seq.append(t2)
+        self.feet1_seq.append(self.params['foot1'])
+        self.feet2_seq.append(self.params['foot2'])
+        if len(t2) > 0:
+            self.t = t2[-1]
+
+        return t, y, t2, y2
+
+class BSLIP_newTD(BSLIP):
+    """ derived from BSLIP. The get_touchdown function is overwritten
+    such that the leg placement is w.r.t. walking direction.
+    
+    *NOTE* This is also a show-case how to use inheritance for modelling here.
+    """
+    
+    def get_touchdown(self, t, y, params):
+        """
+        Compute the touchdown position of the leg w.r.t. CoM velocity
+        
+        :args:
+            t (float): time
+            y (6x float): state of the CoM
+            params (4x float): leg parameter: stiffness, l0, alpha, beta
+        
+        :returns:
+            [xFoot, yFoot, zFoot] the position of the leg tip
+        """
+        k, l0, alpha, beta = params
+        vx, vz = y[3], y[5]
+        
+        a_v_com = -arctan2(vz, vx) # correct with our coordinate system
+        #for debugging
+        #print "v_com_angle:", a_v_com * 180. / pi
+                
+        xf = y[0] + l0 * cos(alpha) * cos(beta + a_v_com)
+        yf = y[1] - l0 * sin(alpha)
+        zf = y[2] - l0 * cos(alpha) * sin(beta + a_v_com)
+
+        #for debugging
+        #print "foot: %2.3f,%2.3f,%2.3f," % ( xf,yf, zf)
+        
+        return array([xf, yf, zf])
+
