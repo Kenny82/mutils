@@ -25,7 +25,8 @@ import time
 import scipy.fftpack as fft
 
 import re
-from IPython.nbformat import current
+#from IPython.nbformat import current
+from IPython import nbformat   # new in IPython3
 
 #import mutils.fourier as mfou
 
@@ -1291,7 +1292,7 @@ def get_minmax(data, deg=2):
     x0 = r[nr].real
     return x0, polyval(p, x0)
 
-def run_nbcells(nbfile, cell_ids, run_other=False, fileformat='json'):
+def run_nbcells(nbfile, cell_ids, run_other=False, fileformat=3):
     """
     Runs specific cells from another notebook. In the specified notebook, a cell label can be defined
     in a comment like this:
@@ -1304,7 +1305,10 @@ def run_nbcells(nbfile, cell_ids, run_other=False, fileformat='json'):
         nbfile (str): name of the file to open (typically an ipython notebook)
         cell_ids (list): a list of cell id's (strings) to be looked for
         run_other (bool): run cells if not all required cells have been found
-        fileformat (str): 'json' (default), 'ipynb' or 'py' specifies the format of the file.
+        fileformat(int): default=3, the file format of the notebook
+
+
+        OLD: fileformat (str): 'json' (default), 'ipynb' or 'py' specifies the format of the file.
         
     :returns:
         None
@@ -1314,8 +1318,9 @@ def run_nbcells(nbfile, cell_ids, run_other=False, fileformat='json'):
     
     """
     
+    # how to change
     with open(nbfile) as f:
-        nb = current.read(f, fileformat)
+        nb = nbformat.read(f, fileformat)
     
     codecells = []
     found_ids = []

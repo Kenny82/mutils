@@ -739,8 +739,9 @@ class KinData(object):
         return all_pos        
 
 
-class saveable(object):
-    """ This class provides basic save / reload options """
+class workspace(object):
+    """ This class provides a basic workspace, which in future versions
+    should also provide save / reload options """
     def __init__(self, src = None):
         """
         Initialize the class.
@@ -937,7 +938,8 @@ class saveable(object):
 
 
 # define an alias for "saveable"
-workspace = saveable
+#workspace = saveable
+saveable = workspace # alias for old name (backward compatibility)
 
 def read_kistler(fname):
     """

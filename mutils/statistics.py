@@ -483,7 +483,7 @@ class RCLS(object):
     """
     def __init__(self, di, do, d=50, lambda_ = 1):
         self.lambda_ = lambda_
-        self.d = d
+        #self.d = d
         self.P = d * np.eye(di)
         self.A_est = np.zeros((do, di))
 
