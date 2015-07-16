@@ -1357,5 +1357,18 @@ def run_nbcells(nbfile, cell_ids, run_other=False, fileformat=3):
         print ', '.join(set(cell_ids) - set(found_ids))
         raise NameError("some cells could not be identified")
     
+def columnify(vec):
+    """
+    returns a column-vector (2D vector of shape [:, 1]) from a vector-like
+    object.
+
+    :param vec: the input data
+    :type vec: array or list
+    
+    :returns: the same data as column vector
+    :rtype: 2D numpy array
+
+    """
+    return numpy.array(vec).flatten()[:, numpy.newaxis]
             
-            
+

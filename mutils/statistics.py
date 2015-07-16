@@ -22,6 +22,7 @@ from pylab import (figure, plot, log10, log, xlabel, ylabel, title,
     legend, isnan, diff, rand, randn, lstsq)
 #from mutils.FDatAn import fitData,
 
+
 def ar_process(n,alpha):
     """
     creates a AR(1)-Process
@@ -500,9 +501,18 @@ class RCLS(object):
 
         Thanks to de.wikipedia.org/wiki/RLS-Algorithmus
         """
-        # bring x and y to "correct" shape
-        x_ = np.array(x).squeeze()[:, np.newaxis]
-        y_ = np.array(y).squeeze()[:, np.newaxis]
+        def columnify(vec):
+            """
+            returns a columnvector (2D array of shape [:,1] from an input)
+            Same as mutils.statistics.columnify, but the import statement is
+            avoided here
+            """
+            return np.array(vec).flatten()[:, np.newaxis]
+
+        # bring x and y to "correct" shape: both are column-vectors
+        x_ = columnify(x)
+        y_ = columnify(y)
+
 
 
         # weighting factor for updates
