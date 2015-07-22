@@ -24,9 +24,14 @@ from scipy.integrate import odeint
 import time
 import scipy.fftpack as fft
 
+
+# actually, there is only a very simple string replacement
+# routine used from this module - can be done manually if required.
+import cgi as _cgi 
 import re
 #from IPython.nbformat import current
 from IPython import nbformat   # new in IPython3
+import IPython.display as _ipd
 
 #import mutils.fourier as mfou
 
@@ -1371,4 +1376,56 @@ def columnify(vec):
     """
     return numpy.array(vec).flatten()[:, numpy.newaxis]
             
+def print_panel(ws):
+    """
+    Adds a workspace view to the table of content window.
+    
+    :param ws: Workspace to be printed
+    :type ws: mutils.io.workspace
 
+    :returns: a IPython HTML object which contains the javascript to print the
+        workspace
+    :rtype: IPython.HTML
+    """
+
+    js_pts = ["""
+    <script type="text/javascript">
+    //$('#myPanel').empty();
+    $('#myPanel').append("<p class='h2'>Workspace:</p>");
+    $('#myPanel').append("<table  class='my_panel'>");
+    """
+    ]
+    
+        
+
+    for line in ws.display(True,'\t').splitlines():
+        html_string = '<tr class="my_panel">'
+        elems = line.split('\t')
+        n_cols = 0
+        for elem in elems:
+            html_string = ''.join((html_string, 
+                '<td class="my_panel">{}</td> '.format(_cgi.escape(
+                    elem.strip().replace(r"'",r"\'"))) ))
+            n_cols = n_cols + 1
+
+        while n_cols < 3:
+            html_string = ''.join((html_string, '<td class="my_panel"> </td>'))
+            n_cols = n_cols + 1
+
+        html_string = ''.join((html_string, '</tr>'))
+
+        js_string = "$('#myPanel').append('{}');\n".format(html_string)
+        js_pts.append(js_string)
+
+    js_pts.append(
+    """
+    $('#myPanel').append("</table>");
+    </script>
+    """
+    )
+
+    print '\n'.join(js_pts)
+
+    return _ipd.HTML(''.join(js_pts))
+
+    
