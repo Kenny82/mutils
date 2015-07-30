@@ -17,7 +17,7 @@ from pylab import (vstack, hstack, zeros, arange, array, randn, dot, sum, eig,
                    inv, mod, mean, cumsum, pi, zeros_like, linspace, interp,
                    polyval, ceil, eye, isreal, isnan, linspace, concatenate,
                    convolve, polyfit, polyval, roots, median)
-from scipy.signal import medfilt
+from scipy.signal import medfilt, filtfilt
 from scipy.special import gamma, hyp2f1
 from scipy.linalg.matfuncs import sqrtm
 from scipy.integrate import odeint
@@ -34,6 +34,23 @@ from IPython import nbformat   # new in IPython3
 import IPython.display as _ipd
 
 #import mutils.fourier as mfou
+
+def filtfilt2(b, a, sig):
+    """
+    extends the signal in both directions by an anti-symmetric copy of the
+    original signal, and then applies filtfilt. This improves signal quality at
+    the edges (assuming the signal is roughly smooth at the edges)
+
+    :param b: B of filter (e.g. from scipy.signal.butter)
+    :param a: A of filter (e.g. from scipy.signal.butter)
+    :param sig: Signal to be filtered (array)
+
+    :returns: the filtered signal
+    """
+    x0 = hstack([2 * x[0] - x[:0:-1], x, 2*x[-1] - x[-2::-1]])
+    return filtfilt(b, a, x0)[len(x0) - 1:2*len(x0)-1]
+
+
 
 # keep for compatibility: these functions were previously in this module
 from mutils.fourier import diff_f, diff_f0, int_f, int_f0, interp_f
@@ -1424,7 +1441,7 @@ def print_panel(ws):
     """
     )
 
-    print '\n'.join(js_pts)
+    #print '\n'.join(js_pts)
 
     return _ipd.HTML(''.join(js_pts))
 
