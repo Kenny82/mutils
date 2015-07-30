@@ -47,8 +47,9 @@ def filtfilt2(b, a, sig):
 
     :returns: the filtered signal
     """
-    x0 = hstack([2 * sig[0] - sig[0:-1], sig, 2.0 * sig[-1] - sig[-2::-1]])
-    return filtfilt(b, a, x0)[len(x0) - 1:2*len(x0)-1]
+    _sig = sig.flatten()
+    x0 = hstack([2 * _sig[0] - _sig[0:-1], _sig, 2.0 * _sig[-1] - _sig[-2::-1]])
+    return filtfilt(b, a, x0)[len(_sig) - 1:2*len(_sig)-1]
 
 
 
