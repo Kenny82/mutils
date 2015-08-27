@@ -35,38 +35,6 @@ import IPython.display as _ipd
 
 #import mutils.fourier as mfou
 
-def filtfilt2(b, a, sig):
-    """
-    extends the signal in both directions by an anti-symmetric copy of the
-    original signal, and then applies filtfilt. This improves signal quality at
-    the edges (assuming the signal is roughly smooth at the edges)
-
-    :param b: B of filter (e.g. from scipy.signal.butter)
-    :param a: A of filter (e.g. from scipy.signal.butter)
-    :param sig: Signal to be filtered (array)
-
-    :returns: the filtered signal
-    """
-    _sig = sig.flatten()
-    x0 = hstack([2 * _sig[0] - _sig[1:][::-1], _sig, 2.0 * _sig[-1] - _sig[-2::-1]])
-    return filtfilt(b, a, x0)[len(_sig) - 1:2*len(_sig)-1]
-
-def filtfilt3(b, a, sig):
-    """
-    extends the signal in both directions by an anti-symmetric copy of the
-    original signal, and then applies filtfilt. This improves signal quality at
-    the edges (assuming the signal is roughly smooth at the edges)
-
-    :param b: B of filter (e.g. from scipy.signal.butter)
-    :param a: A of filter (e.g. from scipy.signal.butter)
-    :param sig: Signal to be filtered (array)
-
-    :returns: the filtered signal
-    """
-    _sig = sig.flatten()
-    x0 = hstack([2 * _sig[0] - _sig[1:][::-1], _sig, 2.0 * _sig[-1] - _sig[-2::-1]])
-    return x0
-
 
 # keep for compatibility: these functions were previously in this module
 from mutils.fourier import diff_f, diff_f0, int_f, int_f0, interp_f
